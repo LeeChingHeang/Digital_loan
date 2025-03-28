@@ -1,0 +1,10 @@
+python-telegram-bot>=20.0
+python-dotenv>=0.19.0
+PyMySQL>=1.0.2
+cryptography>=3.4.7
+pytesseract>=0.3.8
+Pillow>=8.3.1
+numpy>=1.21.0
+deepface>=0.0.75
+python-docx>=0.8.11
+matplotlib>=3.4.2

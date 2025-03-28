@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
 
+import platform
 load_dotenv()
 
 # Enable logging
@@ -38,9 +39,19 @@ class Config:
 # DB_NAME = os.getenv("DB_NAME", "loan_service")
 # DB_CHARSET = "utf8mb4"
 
+#import os
+
+# ...existing code...
+
 # File System Configuration
-    UPLOAD_DIR = os.environ.get("UPLOAD_DIR", r"C:\lending_system\upload")
-    TESSERACT_PATH = os.environ.get("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/tmp/lending_system/upload" if platform.system() == "Linux" else r"C:\lending_system\upload")
+    TESSERACT_PATH = os.environ.get("TESSERACT_PATH", 
+                                  "/usr/bin/tesseract" if platform.system() == "Linux" 
+                                  else r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+
+# # ...existing code... File System Configuration
+#     UPLOAD_DIR = os.environ.get("UPLOAD_DIR", r"C:\lending_system\upload")
+#     TESSERACT_PATH = os.environ.get("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 
 # Rate Limiting Configuration
 MAX_ATTEMPTS = 5

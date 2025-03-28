@@ -1,11 +1,12 @@
 import os
 import logging
 import shutil
+import datetime
 from cryptography.fernet import Fernet
 from PIL import Image
 import pytesseract
 import numpy as np
-from src.config.config import UPLOAD_DIR, TESSERACT_PATH
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -13,16 +14,16 @@ class FileHandler:
     def __init__(self):
         self.ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", Fernet.generate_key())
         self.cipher_suite = Fernet(self.ENCRYPTION_KEY)
-        pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+        pytesseract.pytesseract.tesseract_cmd = Config.TESSERACT_PATH
 
     def ensure_upload_dir(self):
         """Ensure the upload directory exists"""
-        if not os.path.exists(UPLOAD_DIR):
-            os.makedirs(UPLOAD_DIR)
+        if not os.path.exists(Config.UPLOAD_DIR):
+            os.makedirs(Config.UPLOAD_DIR)
 
     def get_user_folder(self, telegram_id: int) -> str:
         """Create and return a unique folder for each user"""
-        user_folder = os.path.join(UPLOAD_DIR, f"user_{telegram_id}")
+        user_folder = os.path.join(Config.UPLOAD_DIR, f"user_{telegram_id}")
         if not os.path.exists(user_folder):
             os.makedirs(user_folder)
         return user_folder
@@ -85,6 +86,38 @@ class FileHandler:
         except Exception as e:
             logger.error(f"OCR extraction error: {e}")
             return ""
+
+    async def save_file(self, update, context, file_type: str) -> str:
+        """Save uploaded file and return the file path"""
+        try:
+            # Get the file object
+            if update.message.photo:
+                file = update.message.photo[-1].get_file()
+                file_extension = '.jpg'
+            else:
+                file = update.message.document.get_file()
+                file_extension = os.path.splitext(update.message.document.file_name)[1]
+
+            # Create unique filename
+            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f"{file_type}_{timestamp}{file_extension}"
+            
+            # Ensure upload directory exists
+            self.ensure_upload_dir()
+            
+            # Save file
+            file_path = os.path.join(Config.UPLOAD_DIR, filename)
+            await file.download_to_drive(file_path)
+            
+            # Encrypt the file
+            self.encrypt_file(file_path)
+            
+            logger.info(f"File saved: {file_path}")
+            return file_path
+            
+        except Exception as e:
+            logger.error(f"Error saving file: {e}")
+            raise
 
     def validate_signature_image(self, file_path: str) -> bool:
         """Validate if uploaded image appears to be a digital signature"""

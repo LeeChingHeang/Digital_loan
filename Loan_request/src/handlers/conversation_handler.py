@@ -1,146 +1,270 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext, ConversationHandler
-import re
-import hashlib
-
-from src.config.config import *
-from src.utils.language_manager import LanguageManager
-from src.database.db_manager import DatabaseManager
-from src.utils.file_handler import FileHandler
-from src.services.loan_processor import LoanProcessor
-from src.services.reminder_service import ReminderService
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    CallbackContext, ConversationHandler, CommandHandler,
+    MessageHandler, CallbackQueryHandler, filters
+)
 
 logger = logging.getLogger(__name__)
 
-class ConversationHandlerManager:
-    def __init__(self):
-        self.db_manager = DatabaseManager()
-        self.file_handler = FileHandler()
-        self.loan_processor = LoanProcessor()
-        self.reminder_service = ReminderService()
-        self.lang_manager = LanguageManager()
+# Define conversation states
+(SELECT_LANGUAGE, NEW_USER_CHOICE, AUTHENTICATE, SELECT_TENOR,
+ SELECT_AMOUNT, UPLOAD_DOC, UPLOAD_ID, ID_CONFIRMATION,
+ UPLOAD_SELFIE, USER_INFO) = range(10)
 
-    async def start(self, update: Update, context: CallbackContext) -> int:
+class ConversationHandlerManager:
+    """Manage the conversation flow for loan requests"""
+
+    def __init__(self):
+        """Initialize the conversation handler manager"""
+        logger.info("Initializing ConversationHandlerManager")
+
+    async def start_conversation(self, update: Update, context: CallbackContext) -> int:
         """Start the conversation and ask for language preference"""
+        logger.info(f"Starting loan request conversation. Message: {update.message.text if update.message else 'No message'}")
         context.user_data.clear()
-        keyboard = [
-            [InlineKeyboardButton("English", callback_data='english'),
-             InlineKeyboardButton("ខ្មែរ", callback_data='khmer')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("🌐 Welcome! Please choose your language:", 
-                                      reply_markup=reply_markup)
+        logger.info("User data cleared")
+        
+        try:
+            logger.info("Setting up language selection keyboard")
+            keyboard = [
+                [InlineKeyboardButton("English", callback_data='english'),
+                 InlineKeyboardButton("ខ្មែរ", callback_data='khmer')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            logger.info("Sending language selection message")
+            await update.message.reply_text(
+                "🌐 Welcome! Please choose your language:", 
+                reply_markup=reply_markup
+            )
+            logger.info("Language selection message sent successfully")
+        except Exception as e:
+            logger.error(f"Error in start_conversation: {str(e)}")
+            raise
         return SELECT_LANGUAGE
 
     async def language_selection(self, update: Update, context: CallbackContext) -> int:
         """Handle language selection"""
+        try:
+            logger.info("Processing language selection")
+            query = update.callback_query
+            await query.answer()
+            
+            selected_language = query.data
+            logger.info(f"Selected language: {selected_language}")
+            context.user_data['language'] = selected_language
+            
+            logger.info("Setting up user type selection keyboard")
+            keyboard = [
+                [InlineKeyboardButton("New User", callback_data='new'),
+                 InlineKeyboardButton("Existing User", callback_data='existing')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            logger.info("Sending user type selection message")
+            await query.message.reply_text(
+                "Are you a new or existing user?",
+                reply_markup=reply_markup
+            )
+            logger.info("User type selection message sent successfully")
+            return NEW_USER_CHOICE
+        except Exception as e:
+            logger.error(f"Error in language_selection: {str(e)}")
+            raise
+
+    async def handle_user_choice(self, update: Update, context: CallbackContext) -> int:
+        """Handle user type selection"""
         query = update.callback_query
         await query.answer()
-        language = query.data
-        context.user_data['language'] = language
-        context.user_data['telegram_id'] = query.from_user.id
-        context.user_data['user_full_name'] = query.from_user.full_name
-
-        keyboard = [
-            [InlineKeyboardButton(self.lang_manager.get_message(language, 'new_user'), 
-                                callback_data='new')],
-            [InlineKeyboardButton(self.lang_manager.get_message(language, 'existing_user'), 
-                                callback_data='existing')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            self.lang_manager.get_message(language, 'user_status_prompt'),
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        return NEW_USER_CHOICE
-
-    async def cancel(self, update: Update, context: CallbackContext) -> int:
-        """Cancel the conversation"""
-        self.file_handler.delete_temp_files(context)
-        context.user_data.clear()
-        language = context.user_data.get('language', 'english')
-        cancel_text = self.lang_manager.get_message(language, 'loan_cancelled')
         
-        if update.callback_query:
-            await update.callback_query.message.reply_text(cancel_text, parse_mode="Markdown")
+        user_type = query.data
+        context.user_data['user_type'] = user_type
+        
+        if user_type == 'existing':
+            await query.message.reply_text(
+                "Please enter your phone number for authentication:"
+            )
+            return AUTHENTICATE
         else:
-            await update.effective_message.reply_text(cancel_text, parse_mode="Markdown")
-        
-        return ConversationHandler.END
+            keyboard = [
+                [InlineKeyboardButton("1 week", callback_data='1w'),
+                 InlineKeyboardButton("2 weeks", callback_data='2w')],
+                [InlineKeyboardButton("1 month", callback_data='1m'),
+                 InlineKeyboardButton("2 months", callback_data='2m')],
+                [InlineKeyboardButton("Cancel", callback_data='cancel')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text(
+                "Please select your preferred loan duration:",
+                reply_markup=reply_markup
+            )
+            return SELECT_TENOR
 
     async def auth_handler(self, update: Update, context: CallbackContext) -> int:
         """Handle user authentication"""
-        language = context.user_data.get('language', 'english')
-        telegram_id = update.effective_user.id
-        user_input = update.message.text.strip()
+        phone_number = update.message.text
+        context.user_data['phone_number'] = phone_number
+        
+        keyboard = [
+            [InlineKeyboardButton("1 week", callback_data='1w'),
+             InlineKeyboardButton("2 weeks", callback_data='2w')],
+            [InlineKeyboardButton("1 month", callback_data='1m'),
+             InlineKeyboardButton("2 months", callback_data='2m')],
+            [InlineKeyboardButton("Cancel", callback_data='cancel')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Please select your preferred loan duration:",
+            reply_markup=reply_markup
+        )
+        return SELECT_TENOR
 
-        if user_input.isdigit() and len(user_input) == 6:
-            # PIN authentication
-            hashed_input = hashlib.sha256(user_input.encode('utf-8')).hexdigest()
-            if self.db_manager.verify_pin(telegram_id, hashed_input):
-                await update.message.reply_text(
-                    self.lang_manager.get_message(language, 'auth_success'),
-                    parse_mode="Markdown"
-                )
-                await self.proceed_to_loan_application(update, context)
-                return SELECT_TENOR
-            else:
-                await update.message.reply_text(
-                    self.lang_manager.get_message(language, 'incorrect_pin'),
-                    parse_mode="Markdown"
-                )
-                return AUTHENTICATE
-        elif user_input == str(telegram_id):
-            # Telegram ID authentication
-            await update.message.reply_text(
-                self.lang_manager.get_message(language, 'auth_success_by_id'),
-                parse_mode="Markdown"
+    async def handle_tenor_selection(self, update: Update, context: CallbackContext) -> int:
+        """Handle loan tenor selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        selected_tenor = query.data
+        context.user_data['tenor'] = selected_tenor
+        
+        await query.message.reply_text(
+            "Please enter your desired loan amount:"
+        )
+        return SELECT_AMOUNT
+
+    async def handle_amount(self, update: Update, context: CallbackContext) -> int:
+        """Handle loan amount input"""
+        amount = update.message.text
+        context.user_data['amount'] = amount
+        
+        await update.message.reply_text(
+            "Please upload your salary slip or bank statement:"
+        )
+        return UPLOAD_DOC
+
+    async def handle_doc_upload(self, update: Update, context: CallbackContext) -> int:
+        """Handle document upload"""
+        file_id = update.message.document.file_id if update.message.document else update.message.photo[-1].file_id
+        context.user_data['doc_file_id'] = file_id
+        
+        await update.message.reply_text(
+            "Please upload a photo of your ID card:"
+        )
+        return UPLOAD_ID
+
+    async def handle_id_upload(self, update: Update, context: CallbackContext) -> int:
+        """Handle ID card upload"""
+        file_id = update.message.document.file_id if update.message.document else update.message.photo[-1].file_id
+        context.user_data['id_file_id'] = file_id
+        
+        keyboard = [
+            [InlineKeyboardButton("Yes", callback_data='yes'),
+             InlineKeyboardButton("No", callback_data='no')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Is your ID card clear and valid?",
+            reply_markup=reply_markup
+        )
+        return ID_CONFIRMATION
+
+    async def handle_id_confirmation(self, update: Update, context: CallbackContext) -> int:
+        """Handle ID confirmation"""
+        query = update.callback_query
+        await query.answer()
+        
+        if query.data == 'yes':
+            await query.message.reply_text(
+                "Please take a selfie holding your ID card:"
             )
-            await self.proceed_to_loan_application(update, context)
-            return SELECT_TENOR
+            return UPLOAD_SELFIE
+        else:
+            await query.message.reply_text(
+                "Please upload a clearer photo of your ID card:"
+            )
+            return UPLOAD_ID
+
+    async def handle_selfie_upload(self, update: Update, context: CallbackContext) -> int:
+        """Handle selfie upload"""
+        file_id = update.message.photo[-1].file_id
+        context.user_data['selfie_file_id'] = file_id
+        
+        await update.message.reply_text(
+            "Please enter your full name and address:"
+        )
+        return USER_INFO
+
+    async def handle_user_info(self, update: Update, context: CallbackContext) -> int:
+        """Handle user information input"""
+        user_info = update.message.text
+        context.user_data['user_info'] = user_info
+        
+        # Process the loan application
+        await update.message.reply_text(
+            "Thank you for your application. We will process it and get back to you soon."
+        )
+        return ConversationHandler.END
+
+    async def cancel(self, update: Update, context: CallbackContext) -> int:
+        """Cancel the conversation"""
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text(
+                "Loan application cancelled."
+            )
         else:
             await update.message.reply_text(
-                self.lang_manager.get_message(language, 'incorrect_auth'),
-                parse_mode="Markdown"
+                "Loan application cancelled."
             )
-            return AUTHENTICATE
-
-    async def proceed_to_loan_application(self, update: Update, context: CallbackContext) -> None:
-        """Proceed with loan application after successful authentication"""
-        language = context.user_data.get('language', 'english')
-        await update.message.reply_text(
-            self.lang_manager.get_message(language, 'welcome'),
-            parse_mode="Markdown"
-        )
-        
-        tenor_keyboard = [
-            [InlineKeyboardButton(option, callback_data=f"{i}w" if i < 4 else f"{i//4}m")
-             for i, option in enumerate(self.lang_manager.get_message(language, 'tenor_options'), 2)],
-            [InlineKeyboardButton("🚫 " + self.lang_manager.get_message(language, 'cancel'),
-                                callback_data='cancel')]
-        ]
-        reply_markup = InlineKeyboardMarkup(tenor_keyboard)
-        await update.message.reply_text(
-            self.lang_manager.get_message(language, 'select_tenor'),
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-
-    # Additional handler methods would be implemented here...
-    # For brevity, I've included the core handlers. The complete implementation
-    # would include all conversation states defined in config.py
+        return ConversationHandler.END
 
     def get_conversation_handler(self):
         """Return the configured ConversationHandler"""
-        return ConversationHandler(
-            entry_points=[CommandHandler('start', self.start)],
+        logger.info("Creating conversation handler")
+        handler = ConversationHandler(
+            entry_points=[
+                MessageHandler(filters.Regex('^Request Loan$'), self.start_conversation)
+            ],
             states={
                 SELECT_LANGUAGE: [
                     CallbackQueryHandler(self.language_selection, pattern='^(english|khmer)$')
                 ],
-                # Additional states would be defined here...
+                NEW_USER_CHOICE: [
+                    CallbackQueryHandler(self.handle_user_choice, pattern='^(new|existing)$')
+                ],
+                AUTHENTICATE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.auth_handler)
+                ],
+                SELECT_TENOR: [
+                    CallbackQueryHandler(self.handle_tenor_selection, pattern='^[0-9]+[wm]$'),
+                    CallbackQueryHandler(self.cancel, pattern='^cancel$')
+                ],
+                SELECT_AMOUNT: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_amount),
+                    CallbackQueryHandler(self.cancel, pattern='^cancel$')
+                ],
+                UPLOAD_DOC: [
+                    MessageHandler(filters.Document.ALL | filters.PHOTO, self.handle_doc_upload),
+                    CallbackQueryHandler(self.cancel, pattern='^cancel$')
+                ],
+                UPLOAD_ID: [
+                    MessageHandler(filters.Document.ALL | filters.PHOTO, self.handle_id_upload),
+                    CallbackQueryHandler(self.cancel, pattern='^cancel$')
+                ],
+                ID_CONFIRMATION: [
+                    CallbackQueryHandler(self.handle_id_confirmation),
+                    CallbackQueryHandler(self.cancel, pattern='^cancel$')
+                ],
+                UPLOAD_SELFIE: [
+                    MessageHandler(filters.PHOTO, self.handle_selfie_upload),
+                    CallbackQueryHandler(self.cancel, pattern='^cancel$')
+                ],
+                USER_INFO: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_user_info),
+                    CallbackQueryHandler(self.cancel, pattern='^cancel$')
+                ]
             },
             fallbacks=[CommandHandler('cancel', self.cancel)]
         )
+        logger.info("Conversation handler created successfully")
+        return handler

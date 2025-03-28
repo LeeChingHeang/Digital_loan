@@ -30,8 +30,23 @@ class Config:
     DB_NAME = os.getenv("DB_NAME")
     DB_TIMEOUT = int(os.getenv("DB_TIMEOUT"))
 
+# Config For Loan_request
+# Database Configuration
+# DB_HOST = os.getenv("DB_HOST", "localhost")
+# DB_USER = os.getenv("DB_USER", "root")
+# DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+# DB_NAME = os.getenv("DB_NAME", "loan_service")
+# DB_CHARSET = "utf8mb4"
 
-# Define conversation states
+# File System Configuration
+    UPLOAD_DIR = os.environ.get("UPLOAD_DIR", r"C:\lending_system\upload")
+    TESSERACT_PATH = os.environ.get("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+
+# Rate Limiting Configuration
+MAX_ATTEMPTS = 5
+TIME_WINDOW = 300  # 5 minutes in seconds
+
+# Conversation States
 SELECT_LANGUAGE = 0
 AUTHENTICATE = 1
 SELECT_TENOR = 2
@@ -65,13 +80,6 @@ PREAPPROVAL_AUTH = 75
 NEW_USER_CHOICE = 1000
 PREAPPROVAL_CHOICE = 1001
 PREAPPROVAL_USER_INFO = 1002
-
-# PIN States
-PIN_CURRENT = 0
-PIN_INPUT = 1
-PIN_CONFIRM = 2
-
-
 # class LoanConfig:
 #     """Configuration for the loan request module"""
     

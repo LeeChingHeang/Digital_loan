@@ -5,15 +5,13 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Import functions from separate scripts
 from Payment.digital_lending_payment.loan_payment import payment_service, process_payment
-# from Loan_request.loan_request import loan_service, process_loan_request
+from Loan_request.Loan_service import loan_service
 
 # Import the general info service
 from General_Information.general_loan import general_info_service
 
 def get_general_info():
     return "General information"
-def process_loan_request():
-    return "Loan request"
 load_dotenv()  # Load variables from .env file
 
 # Define the command handlers
@@ -33,22 +31,15 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Start the general info flow instead of just sending text
     await general_info_service.start_info(update, context)
 
-async def loan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Use the process_loan_request function from the loan module
-    # await process_loan_request(update, context)
-    response = process_loan_request()
-    await update.message.reply_text(response)
-
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Use the process_payment function for consistent behavior
     await process_payment(update, context)
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
+    logger.info(f"Button click received with text: {text}")
     if text == "General Info":
         await info(update, context)
-    elif text == "Request Loan":
-        await loan(update, context)
     elif text == "Pay Loan":
         await pay(update, context)
 
@@ -60,20 +51,35 @@ def main() -> None:
     application = Application.builder().token(TOKEN).build()
     # application = Application.builder().token(TOKEN).base_url(BASE_URL).build()
 
-    # Add standard command handlers
-    application.add_handler(CommandHandler("start", start))
+    # Initialize loan service first
+    loan_service.setup()
     
-    # Register all payment handlers
+    # Debug handler to log all messages
+    async def debug_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.message:
+            if update.message.text:
+                logger.info(f"Message received: {update.message.text}")
+            else:
+                logger.info(f"Non-text message received: {update.message}")
+        return None
+
+    # Register handlers in order of priority
+    # Group -1: Debug logging (runs before all handlers)
+    application.add_handler(MessageHandler(filters.ALL, debug_handler), group=-1)
+    
+    # Group 0: Core handlers
+    application.add_handler(CommandHandler("start", start), group=0)
+    loan_service.register_handlers(application)  # Also in group 0
+    
+    # Group 1: Service handlers
     payment_service.register_handlers(application)
-    
-    # Register all general info handlers
     general_info_service.register_handlers(application)
     
-    # Register all loan request handlers
-    # loan_service.register_handlers(application)
-    
-    # Add message handler for button clicks
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, button_click))
+    # Group 2: Fallback handlers
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND & ~filters.Regex("^Request Loan$"), 
+        button_click
+    ), group=2)
     
     # Run the bot
     application.run_polling()

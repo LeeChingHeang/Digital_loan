@@ -4,7 +4,7 @@ import datetime
 import matplotlib.pyplot as plt
 from docx import Document
 import os
-from src.config.config import UPLOAD_DIR
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ class LoanProcessor:
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         file_name = f"Repayment_Chart_{timestamp}.png"
-        file_path = os.path.join(UPLOAD_DIR, file_name)
+        file_path = os.path.join(Config.UPLOAD_DIR, file_name)
         plt.savefig(file_path)
         plt.close()
         

@@ -2,7 +2,7 @@ import logging
 import hashlib
 import pymysql
 import re
-from src.config.config import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_CHARSET
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +15,16 @@ class DatabaseManager:
         """Establish database connection"""
         try:
             self.connection = pymysql.connect(
-                host=DB_HOST,
-                user=DB_USER,
-                password=DB_PASSWORD,
-                db=DB_NAME,
-                charset=DB_CHARSET,
-                cursorclass=pymysql.cursors.DictCursor
+                charset="utf8mb4",
+                connect_timeout=Config.DB_TIMEOUT,
+                cursorclass=pymysql.cursors.DictCursor,
+                db=Config.DB_NAME,
+                host=Config.DB_HOST,
+                password=Config.DB_PASSWORD,
+                read_timeout=Config.DB_TIMEOUT,
+                port=Config.DB_PORT,
+                user=Config.DB_USER,
+                write_timeout=Config.DB_TIMEOUT,
             )
             logger.info("Database connection established")
         except Exception as e:
